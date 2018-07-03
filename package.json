@@ -19,9 +19,11 @@
     "escodegen": "",
     "esmangle": "",
     "esprima": "",
+    "minimist": "^1.2.0",
     "request": "^2.74.0",
-    "tar.gz": "^1.0.5",
-    "utf8": "^2.1.2"
+    "tar": "^4.4.4",
+    "utf8": "^2.1.2",
+    "yargs": "^11.0.0"
   },
   "optionalDependencies": {
     "noble": "^1.7.0",

@@ -1,5 +1,51 @@
 #!/usr/bin/env node
 /* Entrypoint for node module command-line app. Not used for Web IDE */
+// const args = require('yargs');
+//
+// //override default console.log
+// var log = console.log;
+// console.log = function() {
+//  if (args.verbose)
+//    log.apply(console, arguments);
+// }
+//
+// require('../index.js').init(() => {});
+
+require('yargs')
+.usage('USAGE: espruino ...options... [file_to_upload.js]')
+
+.alias('q', 'quiet')
+.boolean('quiet')
+.describe('q', 'Quiet - apart from Espruino output')
+
+.alias('v', 'verbose')
+.boolean('verbose')
+.describe('v', 'Verbose')
+
+.command('list', 'List all available devices and exit', args => {
+  Espruino.Core.Serial.getPorts(function(ports) {
+    log("PORTS:\n  "+ports.map(function(p) {
+      if (p.description) return p.path + " ("+p.description+")";
+      return p.path;
+    }).join("\n  "));
+  });
+})
+
+.help('h')
+.alias('h', 'help')
+
+.epilog(`If no file, command, or firmware update is specified, this will act
+as a terminal for communicating directly with Espruino. Press Ctrl-C
+twice to exit.
+
+Please report bugs via https://github.com/espruino/EspruinoTools/issues`)
+
+.argv;
+
+
+return;
+
+
 var fs = require("fs");
 
 function getHelp() {
@@ -44,18 +90,6 @@ function getHelp() {
    ""]
 }
 
-//override default console.log
-var log = console.log;
-console.log = function() {
- if (args.verbose)
-   log.apply(console, arguments);
-}
-//Parse Arguments
-var args = {
- ports: [],
- config: {}
-};
-
 var isNextValidPort = function(next) {
  return next && next[0]!=='-' && next.indexOf(".js") == -1;
 }
@@ -74,6 +108,16 @@ var isNextValidJS = function(next) {
 var isNextValid = function(next) {
  return next && next[0]!=='-';
 }
+
+const argv = minimist(process.argv.slice(2), {
+  alias: {
+    h: 'help',
+    v: 'verbose',
+
+  },
+  boolean: ['help', 'verbose', 'quiet', 'color', 'minify', 'time', 'watch', 'nosend', 'no-ble', 'list', 'listconfigs'],
+  string: ['port', 'name'],
+});
 
 for (var i=2;i<process.argv.length;i++) {
  var arg = process.argv[i];
