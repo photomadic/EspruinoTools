@@ -23,7 +23,7 @@
     "request": "^2.74.0",
     "tar": "^4.4.4",
     "utf8": "^2.1.2",
-    "yargs": "^11.0.0"
+    "yargs": "^12.0.1"
   },
   "optionalDependencies": {
     "noble": "^1.7.0",

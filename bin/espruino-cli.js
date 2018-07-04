@@ -1,17 +1,23 @@
 #!/usr/bin/env node
 /* Entrypoint for node module command-line app. Not used for Web IDE */
-// const args = require('yargs');
-//
-// //override default console.log
-// var log = console.log;
-// console.log = function() {
-//  if (args.verbose)
-//    log.apply(console, arguments);
-// }
-//
-// require('../index.js').init(() => {});
+const fs = require('fs');
+const lib = require('../index.js');
+
+const log = console.log;
+const initializeEspruino = function(args) {
+  // override default console.log
+  console.log = function() {
+    if (args.verbose)
+      log.apply(console, arguments);
+  }
+
+  return new Promise(function(resolve) {
+    lib.init(resolve);
+  });
+};
 
 require('yargs')
+.middleware([initializeEspruino])
 .usage('USAGE: espruino ...options... [file_to_upload.js]')
 
 .alias('q', 'quiet')
@@ -22,12 +28,12 @@ require('yargs')
 .boolean('verbose')
 .describe('v', 'Verbose')
 
-.command('list', 'List all available devices and exit', args => {
+.command('list', 'List all available devices and exit', {}, function(args) {
   Espruino.Core.Serial.getPorts(function(ports) {
-    log("PORTS:\n  "+ports.map(function(p) {
-      if (p.description) return p.path + " ("+p.description+")";
-      return p.path;
+    log("PORTS:\n  " + ports.map(function(p) {
+      return p.path + (p.description && " ("+p.description+")" || '');
     }).join("\n  "));
+    process.exit(1);
   });
 })
 
@@ -40,6 +46,7 @@ twice to exit.
 
 Please report bugs via https://github.com/espruino/EspruinoTools/issues`)
 
+.demandCommand()
 .argv;
 
 
@@ -108,16 +115,6 @@ var isNextValidJS = function(next) {
 var isNextValid = function(next) {
  return next && next[0]!=='-';
 }
-
-const argv = minimist(process.argv.slice(2), {
-  alias: {
-    h: 'help',
-    v: 'verbose',
-
-  },
-  boolean: ['help', 'verbose', 'quiet', 'color', 'minify', 'time', 'watch', 'nosend', 'no-ble', 'list', 'listconfigs'],
-  string: ['port', 'name'],
-});
 
 for (var i=2;i<process.argv.length;i++) {
  var arg = process.argv[i];
