@@ -2,6 +2,7 @@
 /* Entrypoint for node module command-line app. Not used for Web IDE */
 const fs = require('fs');
 const lib = require('../index.js');
+const ora = require('ora');
 
 const log = console.log;
 const initializeEspruino = function(args) {
@@ -20,16 +21,30 @@ require('yargs')
 .middleware([initializeEspruino])
 .usage('USAGE: espruino ...options... [file_to_upload.js]')
 
+.alias('m', 'minify')
+.boolean('minify')
+.describe('m', 'Minify the code before sending it')
+
+.boolean('n')
+.describe('n', 'Do not connect to Espruino to upload code')
+
 .alias('q', 'quiet')
 .boolean('quiet')
 .describe('q', 'Quiet - apart from Espruino output')
+
+.alias('t', 'time')
+.boolean('time')
+.describe('t', 'Set Espruino\'s time when uploading code')
 
 .alias('v', 'verbose')
 .boolean('verbose')
 .describe('v', 'Verbose')
 
 .command('list', 'List all available devices and exit', {}, function(args) {
+  var spinner = ora('Scanning available devices')
+  if (!args.verbose) spinner.start();
   Espruino.Core.Serial.getPorts(function(ports) {
+    spinner.stop();
     log("PORTS:\n  " + ports.map(function(p) {
       return p.path + (p.description && " ("+p.description+")" || '');
     }).join("\n  "));
@@ -51,9 +66,6 @@ Please report bugs via https://github.com/espruino/EspruinoTools/issues`)
 
 
 return;
-
-
-var fs = require("fs");
 
 function getHelp() {
   return [

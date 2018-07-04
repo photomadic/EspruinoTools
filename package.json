@@ -20,6 +20,7 @@
     "esmangle": "",
     "esprima": "",
     "minimist": "^1.2.0",
+    "ora": "^2.1.0",
     "request": "^2.74.0",
     "tar": "^4.4.4",
     "utf8": "^2.1.2",
