@@ -1,6 +1,8 @@
 #!/usr/bin/env node
 /* Entrypoint for node module command-line app. Not used for Web IDE */
 const fs = require('fs');
+const repl = require('repl');
+
 const lib = require('../index.js');
 const ora = require('ora');
 
@@ -21,6 +23,9 @@ require('yargs')
 .middleware([initializeEspruino])
 .usage('USAGE: espruino ...options... [file_to_upload.js]')
 
+.string('d')
+.describe('d', 'Connect to the first device with a name containing a match')
+
 .string('e')
 .describe('e', 'Evaluate the given expression on Espruino')
 
@@ -34,6 +39,9 @@ require('yargs')
 .alias('p', 'port')
 .array('port')
 .describe('p', 'Specify port(s) or device addresses to connect to')
+.coerce('port', function(arg) {
+  return arg.map(name => ({ type: 'path', name }));
+})
 
 .alias('q', 'quiet')
 .boolean('quiet')
@@ -52,14 +60,14 @@ require('yargs')
 .describe('w', 'If uploading a JS file, continue to watch it for changes and upload again if it does')
 
 .command('list', 'List all available devices and exit', {}, args => {
-  var spinner = ora('Scanning available devices')
+  const spinner = ora('Scanning available devices')
   if (!args.verbose) spinner.start();
   Espruino.Core.Serial.getPorts(function(ports) {
     spinner.stop();
     log("PORTS:\n  " + ports.map(function(p) {
       return p.path + (p.description && " ("+p.description+")" || '');
     }).join("\n  "));
-    process.exit(1);
+    process.exit(0);
   });
 })
 
@@ -67,8 +75,41 @@ require('yargs')
   if (args.port && args.port.length != 1)
     throw new Error('Can only have one port when using terminal mode');
 
-  getPortPath(args.port[0], function(path) {
-    terminal(path, function() { process.exit(0); });
+  getPortPath(args.port[0], function(devicePath) {
+    const spinner = ora(`Connecting to '${devicePath}'`);
+    if (!args.quiet && !args.verbose) spinner.start();
+
+    Espruino.Core.Serial.open(devicePath, function(status) {
+      if (status === undefined) {
+        spinner.fail('Unable to connect!');
+        return process.exit(0);
+      }
+
+      spinner.succeed('Connected!');
+      const prompt = repl.start({
+        prompt: `${devicePath} > `,
+        eval(cmd, ctx, file, cb) {
+          Espruino.Core.Serial.write(cmd);
+          cb();
+        },
+      });
+
+      process.stdin.setRawMode(true);
+      Espruino.Core.Serial.startListening(function(data) {
+        data = new Uint8Array(data);
+        process.stdout.write(String.fromCharCode.apply(null, data));
+        if (data[data.length - 1] == '>'.charCodeAt(0)) {
+          prompt.displayPrompt();
+        }
+      });
+      prompt.on('exit', () => {
+        spinner.info('Disconnected');
+        process.exit(0);
+      });
+    }, function() {
+      spinner.info('Disconnected');
+      process.exit(0);
+    });
   });
 })
 
@@ -92,7 +133,6 @@ function getHelp() {
    "  -j [job.json]            : Load options from JSON job file - see configDefaults.json",
    "                               Calling without a job filename creates a new job file ",
    "                               named after the uploaded file",
-   "  -d deviceName            : Connect to the first device with a name containing deviceName",
    "  -b baudRate              : Set the baud rate of the serial connection",
    "                               No effect when using USB, default: 9600",
    "  --no-ble                 : Disables Bluetooth Low Energy (using the 'noble' module)",
@@ -521,98 +561,35 @@ function sendOnFileChanged() {
   });
 }
 
-/* Connect and enter terminal mode */
-function terminal(devicePath, exitCallback) {
-  if (!args.quiet) log("Connecting to '"+devicePath+"'");
-  var hadCtrlC = false;
-  var hadCR = false;
-  process.stdin.setRawMode(true);
-  Espruino.Core.Serial.startListening(function(data) {
-    data = new Uint8Array(data);
-    process.stdout.write(String.fromCharCode.apply(null, data));
-    /* If Espruino responds after a Ctrl-C with anything other
-     than a blank prompt, make sure the next Ctrl-C will exit */
-    for (var i=0;i<data.length;i++) {
-      var ch = data[i];
-      if (ch==8) hadCR = true;
-      else {
-        if (hadCtrlC && (ch!=62 /*>*/ || !hadCR)) {
-          //process.stdout.write("\nCTRLC RESET BECAUSE OF "+JSON.stringify(String.fromCharCode.apply(null, data))+"  "+hadCR+" "+ch+"\n");
-          hadCtrlC = false;
-        }
-        hadCR = false;
-      }
-    }
-  });
-  Espruino.Core.Serial.open(devicePath, function(status) {
-    if (status === undefined) {
-      console.error("Unable to connect!");
-      return exitCallback();
-    }
-    if (!args.quiet) log("Connected");
-    process.stdin.on('readable', function() {
-      var chunk = process.stdin.read();
-      if (chunk !== null) {
-        chunk = chunk.toString();
-        Espruino.Core.Serial.write(chunk);
-        // Check for two Ctrl-C in a row (without Espruino doing anything inbetween)
-        for (var i=0;i<chunk.length;i++) {
-          var ch = chunk.charCodeAt(i);
-          if (ch==3) {
-            if (hadCtrlC) {
-              process.stdout.write("\r\n");
-              exitCallback();
-            } else {
-              // if we had ctrl-c, but didn't receive anything
-              setTimeout(function() {
-                if (hadCtrlC) process.stdout.write("\nPress Ctrl-C again to exit\n>");
-              }, 200);
-            }
-            hadCtrlC = true;
-          }
-        }
-      }
-    });
-    process.stdin.on('end', function() {
-      console.log("STDIN ended. exiting...");
-      exitCallback();
-    });
-
-    // figure out what code we need to send (if any)
-    sendCode(function() {
-      if (args.watchFile) sendOnFileChanged();
-    });
-
-   }, function() {
-     log("\nDisconnected.");
-     exitCallback();
-   });
-}
-
 /* If the user's asked us to find a device by name, list
 all devices and search */
 function getPortPath(port, callback) {
-  if (port.type=="path") callback(port.name);
-  else if (port.type=="name") {
-    log("Searching for device named "+JSON.stringify(port.name));
-    var searchString = port.name.toLowerCase();
-    var timeout = 2;
-    Espruino.Core.Serial.getPorts(function cb(ports, shouldCallAgain) {
-      //log(JSON.stringify(ports,null,2));
-      var found = ports.find(function(p) { return p.description.toLowerCase().indexOf(searchString)>=0; });
-      if (found) {
-        log("Found "+JSON.stringify(found.description)+" ("+JSON.stringify(found.path)+")");
-        callback(found.path);
-      } else {
-        if (timeout-- > 0 && shouldCallAgain) // try again - sometimes BLE devices take a while
-          Espruino.Core.Serial.getPorts(cb);
-        else {
-         log("Port named "+JSON.stringify(port.name)+" not found");
-         process.exit(1);
-       }
-      }
-    });
-  } else throw new Error("Unknown port type! "+JSON.stringify(port));
+  if (port.type != 'path' && port.type != 'name') {
+    throw new Error('Unknown port type! ' + JSON.stringify(port));
+  }
+
+  if (port.type == 'path') {
+    return callback(port.name);
+  }
+
+  log("Searching for device named "+JSON.stringify(port.name));
+  var searchString = port.name.toLowerCase();
+  var timeout = 2;
+  Espruino.Core.Serial.getPorts(function cb(ports, shouldCallAgain) {
+    //log(JSON.stringify(ports,null,2));
+    var found = ports.find(function(p) { return p.description.toLowerCase().indexOf(searchString)>=0; });
+    if (found) {
+      log("Found "+JSON.stringify(found.description)+" ("+JSON.stringify(found.path)+")");
+      callback(found.path);
+    } else {
+      if (timeout-- > 0 && shouldCallAgain) // try again - sometimes BLE devices take a while
+        Espruino.Core.Serial.getPorts(cb);
+      else {
+       log("Port named "+JSON.stringify(port.name)+" not found");
+       process.exit(1);
+     }
+    }
+  });
 }
 
 function startConnect() {
