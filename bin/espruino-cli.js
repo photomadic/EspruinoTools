@@ -5,7 +5,7 @@ const lib = require('../index.js');
 const ora = require('ora');
 
 const log = console.log;
-const initializeEspruino = function(args) {
+const initializeEspruino = args => {
   // override default console.log
   console.log = function() {
     if (args.verbose)
@@ -21,12 +21,19 @@ require('yargs')
 .middleware([initializeEspruino])
 .usage('USAGE: espruino ...options... [file_to_upload.js]')
 
+.string('e')
+.describe('e', 'Evaluate the given expression on Espruino')
+
 .alias('m', 'minify')
 .boolean('minify')
 .describe('m', 'Minify the code before sending it')
 
 .boolean('n')
 .describe('n', 'Do not connect to Espruino to upload code')
+
+.alias('p', 'port')
+.array('port')
+.describe('p', 'Specify port(s) or device addresses to connect to')
 
 .alias('q', 'quiet')
 .boolean('quiet')
@@ -40,7 +47,11 @@ require('yargs')
 .boolean('verbose')
 .describe('v', 'Verbose')
 
-.command('list', 'List all available devices and exit', {}, function(args) {
+.alias('w', 'watch')
+.boolean('watch')
+.describe('w', 'If uploading a JS file, continue to watch it for changes and upload again if it does')
+
+.command('list', 'List all available devices and exit', {}, args => {
   var spinner = ora('Scanning available devices')
   if (!args.verbose) spinner.start();
   Espruino.Core.Serial.getPorts(function(ports) {
@@ -52,6 +63,15 @@ require('yargs')
   });
 })
 
+.command('*', 'Communicate with Espruino via the REPL', {}, args => {
+  if (args.port && args.port.length != 1)
+    throw new Error('Can only have one port when using terminal mode');
+
+  getPortPath(args.port[0], function(path) {
+    terminal(path, function() { process.exit(0); });
+  });
+})
+
 .help('h')
 .alias('h', 'help')
 
@@ -60,8 +80,6 @@ as a terminal for communicating directly with Espruino. Press Ctrl-C
 twice to exit.
 
 Please report bugs via https://github.com/espruino/EspruinoTools/issues`)
-
-.demandCommand()
 .argv;
 
 
@@ -71,42 +89,22 @@ function getHelp() {
   return [
    "USAGE: espruino ...options... [file_to_upload.js]",
    "",
-   "  -h,--help                : Show this message",
    "  -j [job.json]            : Load options from JSON job file - see configDefaults.json",
    "                               Calling without a job filename creates a new job file ",
    "                               named after the uploaded file",
-   "  -v,--verbose             : Verbose",
-   "  -q,--quiet               : Quiet - apart from Espruino output",
-   "  -m,--minify              : Minify the code before sending it",
-   "  -w,--watch               : If uploading a JS file, continue to watch it for",
-   "                               changes and upload again if it does.",
-   "  -p,--port /dev/ttyX",
-   "  -p,--port aa:bb:cc:dd:ee : Specify port(s) or device addresses to connect to",
    "  -d deviceName            : Connect to the first device with a name containing deviceName",
    "  -b baudRate              : Set the baud rate of the serial connection",
    "                               No effect when using USB, default: 9600",
    "  --no-ble                 : Disables Bluetooth Low Energy (using the 'noble' module)",
-   "  --list                   : List all available devices and exit",
    "  --listconfigs            : Show all available config options and exit",
    "  --config key=value       : Set internal Espruino config option",
-   "  -t,--time                : Set Espruino's time when uploading code",
    "  -o out.js                : Write the actual JS code sent to Espruino to a file",
    "  -ohex out.hex            : Write the JS code to a hex file as if sent by E.setBootCode",
-   "  -n                       : Do not connect to Espruino to upload code",
    "  --board BRDNAME/BRD.json : Rather than checking on connect, use the given board name or file",
    "  -f firmware.bin[:N]      : Update Espruino's firmware to the given file",
    "                               Espruino must be in bootloader mode.",
    "                               Optionally skip N first bytes of the bin file.",
-   "  -e command               : Evaluate the given expression on Espruino",
-   "                               If no file to upload is specified but you use -e,",
-   "                               Espruino will not be reset",
-   "",
-   "If no file, command, or firmware update is specified, this will act",
-   "as a terminal for communicating directly with Espruino. Press Ctrl-C",
-   "twice to exit.",
-   "",
-   "Please report bugs via https://github.com/espruino/EspruinoTools/issues",
-   ""]
+ ];
 }
 
 var isNextValidPort = function(next) {
